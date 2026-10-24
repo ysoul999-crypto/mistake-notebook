@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>錯題筆記上傳助手</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Cropper.js CSS -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css">
+    <!-- Google Identity Services -->
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <style>
+        body { -webkit-tap-highlight-color: transparent; }
+        .cropper-view-box, .cropper-face { border-radius: 4px; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col">
+
+    <!-- 頂部導覽列 -->
+    <header class="bg-indigo-600 text-white shadow-md sticky top-0 z-50">
+        <div class="max-w-md mx-auto px-4 py-3 flex justify-between items-center">
+            <h1 class="text-lg font-bold flex items-center gap-2">
+                <span>📸</span> 錯題上傳助手
+            </h1>
+            <div class="flex items-center gap-2">
+                <span id="user-status" class="text-xs bg-indigo-700 px-2 py-1 rounded-full text-indigo-200">未登入</span>
+                <button onclick="openSettings()" class="p-2 rounded-full hover:bg-indigo-500 transition text-lg" title="設定">⚙️</button>
+            </div>
+        </div>
+    </header>
+
+    <!-- 主要內容區 -->
+    <main class="max-w-md mx-auto px-4 py-4 flex-1 flex flex-col w-full">
+
+        <!-- 未登入提示區 -->
+        <div id="login-container" class="my-auto text-center p-6 bg-white rounded-2xl shadow-sm border border-slate-100">
+            <div class="text-5xl mb-4">🔐</div>
+            <h2 class="text-xl font-bold mb-2">請先登入 Google 帳號</h2>
+            <p class="text-sm text-slate-500 mb-6">登入後才能將錯題照片自動歸檔至您的 Google 雲端硬碟，供 NotebookLM 使用。</p>
+            <div id="g_id_onload"
+                 data-client_id=""
+                 data-callback="handleCredentialResponse"
+                 data-auto_prompt="false">
+            </div>
+            <div class="g_id_signin flex justify-center" data-type="standard"></div>
+            <p id="no-client-id-msg" class="text-xs text-red-500 mt-4 hidden">尚未設定 Google Client ID，請點擊右上角 ⚙️ 設定您的 Client ID。</p>
+        </div>
+
+        <!-- 已登入：主操作介面 -->
+        <div id="app-container" class="hidden flex-1 flex flex-col">
+            
+            <!-- 目前設定摘要橫幅 -->
+            <div class="bg-indigo-50 border border-indigo-100 rounded-xl p-3.5 mb-4 flex justify-between items-center shadow-xs">
+                <div>
+                    <div class="text-xs text-indigo-500 font-medium">目前歸檔位置</div>
+                    <div id="current-setting-text" class="text-sm font-bold text-indigo-900 mt-0.5">國一上 · 第一次段考</div>
+                </div>
+                <button onclick="openSettings()" class="text-xs bg-white text-indigo-600 border border-indigo-200 px-3 py-1.5 rounded-lg font-medium shadow-2xs active:scale-95 transition">
+                    更改設定
+                </button>
+            </div>
+
+            <!-- 科目選擇標題 -->
+            <div class="mb-3">
+                <h2 class="text-sm font-bold text-slate-600 uppercase tracking-wider">請選擇錯題科目</h2>
+            </div>
+
+            <!-- 科目按鈕網格 -->
+            <div id="subject-grid" class="grid grid-cols-2 gap-3 mb-6">
+                <!-- 動態生成科目按鈕 -->
+            </div>
+
+            <!-- 隱藏的拍照 Input -->
+            <input type="file" id="camera-input" accept="image/*" capture="environment" class="hidden" onchange="handleImageCapture(event)">
+        </div>
+
+    </main>
+
+    <!-- 圖片裁切彈窗 Modal -->
+    <div id="cropper-modal" class="fixed inset-0 bg-black/90 z-50 hidden flex flex-col justify-between p-4">
+        <div class="text-white text-center font-bold text-sm py-2">調整錯題範圍與裁切</div>
+        <div class="flex-1 relative overflow-hidden flex items-center justify-center my-2">
+            <img id="cropper-image" class="max-h-full max-w-full block">
+        </div>
+        <div class="flex gap-3 pt-2">
+            <button onclick="closeCropper()" class="flex-1 bg-slate-700 text-white py-3 rounded-xl font-medium active:scale-98 transition">取消</button>
+            <button onclick="uploadCroppedImage()" class="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-medium active:scale-98 transition shadow-lg shadow-indigo-600/30">確認上傳</button>
+        </div>
+    </div>
+
+    <!-- 設定彈窗 Modal -->
+    <div id="settings-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl max-h-[90vh] overflow-y-auto">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-bold">常駐與系統設定</h3>
+                <button onclick="closeSettings()" class="text-slate-400 hover:text-slate-600 text-xl font-bold">&times;</button>
+            </div>
+            
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 mb-1">Google OAuth Client ID</label>
+                    <input type="text" id="setting-client-id" placeholder="貼上您的 .apps.googleusercontent.com" class="w-full text-sm border border-slate-200 rounded-lg p-2.5 focus:outline-indigo-500">
+                    <p class="text-[11px] text-slate-400 mt-1">請參照教學從 Google Cloud 取得並填入此處。</p>
+                </div>
+
+                <hr class="border-slate-100">
+
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 mb-1">年級選擇</label>
+                    <select id="setting-grade" class="w-full text-sm border border-slate-200 rounded-lg p-2.5 bg-white">
+                        <option value="國一">國一</option>
+                        <option value="國二">國二</option>
+                        <option value="國三">國三</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 mb-1">學期選擇</label>
+                    <select id="setting-semester" class="w-full text-sm border border-slate-200 rounded-lg p-2.5 bg-white">
+                        <option value="上學期">上學期</option>
+                        <option value="下學期">下學期</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 mb-1">段考階段</label>
+                    <select id="setting-exam" class="w-full text-sm border border-slate-200 rounded-lg p-2.5 bg-white">
+                        <option value="第一次段考">第一次段考</option>
+                        <option value="第二次段考">第二次段考</option>
+                        <option value="第三次段考">第三次段考</option>
+                        <option value="平時測驗">平時測驗</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="mt-6 flex gap-2">
+                <button onclick="saveSettings()" class="w-full bg-indigo-600 text-white py-3 rounded-xl font-medium shadow-md shadow-indigo-600/20 active:scale-98 transition">儲存設定</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 全局 Loading 遮罩 -->
+    <div id="loading-overlay" class="fixed inset-0 bg-black/60 z-50 hidden flex flex-col items-center justify-center text-white">
+        <div class="animate-spin rounded-full h-12 w-12 border-4 border-indigo-500 border-t-transparent mb-3"></div>
+        <div id="loading-text" class="text-sm font-medium">正在處理中...</div>
+    </div>
+
+    <!-- Cropper.js JS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
+    <script>
+        // 科目對照表
+        const SUBJECTS = {
+            "國一": ["國文", "英文", "數學", "生物", "歷史", "地理", "公民"],
+            "國二": ["國文", "英文", "數學", "理化", "歷史", "地理", "公民"],
+            "國三": ["國文", "英文", "數學", "理化", "歷史", "地理", "公民"]
+        };
+
+        let accessToken = null;
+        let cropper = null;
+        let selectedSubject = '';
+
+        // 初始化載入
+        window.addEventListener('DOMContentLoaded', () => {
+            loadSettingsToUI();
+            checkClientId();
+        });
+
+        function checkClientId() {
+            const clientId = localStorage.getItem('g_client_id') || '';
+            if (clientId) {
+                document.getElementById('g_id_onload').setAttribute('data-client_id', clientId);
+                document.getElementById('no-client-id-msg').classList.add('hidden');
+                if (window.google) {
+                    google.accounts.id.initialize({
+                        client_id: clientId,
+                        callback: handleCredentialResponse
+                    });
+                }
+            } else {
+                document.getElementById('no-client-id-msg').classList.remove('hidden');
+            }
+        }
+
+        function handleCredentialResponse(response) {
+            // 由於我們需要 Google Drive API 權限 (OAuth Token)，這裡使用 GIS Token Client 流程
+            // 或是經由 ID token 換取存取權杖。簡化起見，我們直接啟動 Token Client：
+            tokenClient.requestAccessToken();
+        }
+
+        let tokenClient;
+        function initTokenClient() {
+            const clientId = localStorage.getItem('g_client_id');
+            if (!clientId) {
+                alert('請先點擊右上角設定填入 Google Client ID');
+                openSettings();
+                return;
+            }
+            tokenClient = google.accounts.oauth2.initTokenClient({
+                client_id: clientId,
+                scope: 'https://www.googleapis.com/auth/drive.file',
+                callback: (resp) => {
+                    if (resp.error) {
+                        alert('授權失敗: ' + resp.error);
+                        return;
+                    }
+                    accessToken = resp.access_token;
+                    document.getElementById('user-status').innerText = '已連線';
+                    document.getElementById('user-status').className = 'text-xs bg-emerald-600 px-2 py-1 rounded-full text-emerald-100';
+                    document.getElementById('login-container').classList.add('hidden');
+                    document.getElementById('app-container').classList.remove('hidden');
+                    renderSubjects();
+                }
+            });
+            tokenClient.requestAccessToken();
+        }
+
+        // 覆寫 Google 預設登入按鈕行為改用 Token Client
+        window.addEventListener('load', () => {
+            setTimeout(() => {
+                const btn = document.querySelector('.g_id_signin');
+                if (btn) {
+                    btn.onclick = (e) => {
+                        e.preventDefault();
+                        initTokenClient();
+                    };
+                }
+            }, 500);
+        });
+
+        // 設定管理
+        function openSettings() {
+            loadSettingsToUI();
+            document.getElementById('settings-modal').classList.remove('hidden');
+        }
+
+        function closeSettings() {
+            document.getElementById('settings-modal').classList.add('hidden');
+        }
+
+        function loadSettingsToUI() {
+            document.getElementById('setting-client-id').value = localStorage.getItem('g_client_id') || '';
+            document.getElementById('setting-grade').value = localStorage.getItem('setting_grade') || '國一';
+            document.getElementById('setting-semester').value = localStorage.getItem('setting_semester') || '上學期';
+            document.getElementById('setting-exam').value = localStorage.getItem('setting_exam') || '第一次段考';
+            
+            updateCurrentSettingDisplay();
+        }
+
+        function saveSettings() {
+            const clientId = document.getElementById('setting-client-id').value.trim();
+            const grade = document.getElementById('setting-grade').value;
+            const semester = document.getElementById('setting-semester').value;
+            const exam = document.getElementById('setting-exam').value;
+
+            localStorage.setItem('g_client_id', clientId);
+            localStorage.setItem('setting_grade', grade);
+            localStorage.setItem('setting_semester', semester);
+            localStorage.setItem('setting_exam', exam);
+
+            checkClientId();
+            updateCurrentSettingDisplay();
+            closeSettings();
+            if (accessToken) {
+                renderSubjects();
+            }
+        }
+
+        function updateCurrentSettingDisplay() {
+            const grade = localStorage.getItem('setting_grade') || '國一';
+            const semester = localStorage.getItem('setting_semester') || '上學期';
+            const exam = localStorage.getItem('setting_exam') || '第一次段考';
+            document.getElementById('current-setting-text').innerText = `${grade}${semester} · ${exam}`;
+        }
+
+        // 渲染科目按鈕
+        function renderSubjects() {
+            const grade = localStorage.getItem('setting_grade') || '國一';
+            const subjects = SUBJECTS[grade] || SUBJECTS["國一"];
+            const grid = document.getElementById('subject-grid');
+            grid.innerHTML = '';
+
+            subjects.forEach(sub => {
+                const btn = document.createElement('button');
+                btn.className = 'bg-white border border-slate-200 hover:border-indigo-500 hover:bg-indigo-50/30 rounded-xl p-4 flex flex-col items-center justify-center shadow-xs active:scale-95 transition group';
+                btn.innerHTML = `
+                    <span class="text-2xl mb-1 group-hover:scale-110 transition">📚</span>
+                    <span class="text-base font-bold text-slate-700 group-hover:text-indigo-600">${sub}</span>
+                `;
+                btn.onclick = () => selectSubjectAndCapture(sub);
+                grid.appendChild(btn);
+            });
+        }
+
+        function selectSubjectAndCapture(sub) {
+            selectedSubject = sub;
+            document.getElementById('camera-input').click();
+        }
+
+        // 處理拍照與裁切
+        function handleImageCapture(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const img = document.getElementById('cropper-image');
+                img.src = e.target.result;
+                document.getElementById('cropper-modal').classList.remove('hidden');
+                
+                if (cropper) cropper.destroy();
+                cropper = new Cropper(img, {
+                    aspectRatio: NaN,
+                    viewMode: 1,
+                    autoCropArea: 0.9,
+                });
+            };
+            reader.readAsDataURL(file);
+            event.target.value = ''; // 清空 input 確保重複拍照有效
+        }
+
+        function closeCropper() {
+            document.getElementById('cropper-modal').classList.add('hidden');
+            if (cropper) {
+                cropper.destroy();
+                cropper = null;
+            }
+        }
+
+        // 上傳裁切後的圖片至 Google Drive
+        async function uploadCroppedImage() {
+            if (!cropper) return;
+            closeCropper();
+            showLoading('正在上傳至 Google Drive...');
+
+            cropper.getCroppedCanvas({ maxWidth: 1600, maxHeight: 1600 }).toBlob(async (blob) => {
+                try {
+                    const grade = localStorage.getItem('setting_grade') || '國一';
+                    const semester = localStorage.getItem('setting_semester') || '上學期';
+                    const exam = localStorage.getItem('setting_exam') || '第一次段考';
+
+                    // 1. 建立或取得資料階層資料夾
+                    const rootFolderId = await getOrCreateFolder('NotebookLM_錯題本', 'root');
+                    const gradeFolderId = await getOrCreateFolder(`${grade}${semester}`, rootFolderId);
+                    const examFolderId = await getOrCreateFolder(exam, gradeFolderId);
+                    const subjectFolderId = await getOrCreateFolder(selectedSubject, examFolderId);
+
+                    // 2. 上傳圖片檔案
+                    const timestamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
+                    const fileName = `${selectedSubject}_${timestamp}.jpg`;
+                    
+                    const metadata = {
+                        name: fileName,
+                        parents: [subjectFolderId]
+                    };
+
+                    const form = new FormData();
+                    form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+                    form.append('file', blob);
+
+                    const response = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+                        method: 'POST',
+                        headers: new Headers({ 'Authorization': 'Bearer ' + accessToken }),
+                        body: form
+                    });
+
+                    if (!response.ok) throw new Error('上傳失敗');
+
+                    hideLoading();
+                    alert('✨ 錯題上傳成功！已歸檔至對應 Google Drive 資料夾。');
+                } catch (error) {
+                    hideLoading();
+                    console.error(error);
+                    alert('上傳發生錯誤，請重新登入或檢查網路連線。');
+                }
+            }, 'image/jpeg', 0.85);
+        }
+
+        // Google Drive 雲端資料夾遞迴尋找或建立輔助函式
+        async function getOrCreateFolder(folderName, parentId) {
+            const query = `name='${folderName}' and '${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+            const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}`, {
+                headers: { 'Authorization': 'Bearer ' + accessToken }
+            });
+            const searchData = await searchRes.json();
+
+            if (searchData.files && searchData.files.length > 0) {
+                return searchData.files[0].id;
+            }
+
+            // 若不存在則建立
+            const metadata = {
+                name: folderName,
+                mimeType: 'application/vnd.google-apps.folder',
+                parents: [parentId]
+            };
+            const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
+                method: 'POST',
+                headers: {
+                    'Authorization': 'Bearer ' + accessToken,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(metadata)
+            });
+            const createData = await createRes.json();
+            return createData.id;
+        }
+
+        function showLoading(text) {
+            document.getElementById('loading-text').innerText = text;
+            document.getElementById('loading-overlay').classList.remove('hidden');
+        }
+
+        function hideLoading() {
+            document.getElementById('loading-overlay').classList.add('hidden');
+        }
+    </script>
+</body>
+</html>
