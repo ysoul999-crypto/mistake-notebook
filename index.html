@@ -316,7 +316,7 @@
         async function uploadCroppedImage() {
             if (!cropper) return;
             closeCropper();
-            showLoading('正在上傳至 Google Drive...');
+            showLoading('準備處理圖片...');
 
             cropper.getCroppedCanvas({ maxWidth: 1600, maxHeight: 1600 }).toBlob(async (blob) => {
                 try {
@@ -324,13 +324,24 @@
                     const semester = localStorage.getItem('setting_semester') || '上學期';
                     const exam = localStorage.getItem('setting_exam') || '第一次段考';
 
-                    showLoading('正在建立或對應雲端資料夾...');
+                    // 步驟 1
+                    showLoading('正在檢查/建立根資料夾...');
                     const rootFolderId = await getOrCreateFolder('NotebookLM_錯題本', 'root');
+                    
+                    // 步驟 2
+                    showLoading('正在檢查/建立年級學期資料夾...');
                     const gradeFolderId = await getOrCreateFolder(`${grade}${semester}`, rootFolderId);
+                    
+                    // 步驟 3
+                    showLoading('正在檢查/建立段考資料夾...');
                     const examFolderId = await getOrCreateFolder(exam, gradeFolderId);
+                    
+                    // 步驟 4
+                    showLoading('正在檢查/建立科目資料夾...');
                     const subjectFolderId = await getOrCreateFolder(selectedSubject, examFolderId);
 
-                    showLoading('正在上傳錯題圖片...');
+                    // 步驟 5
+                    showLoading('正在傳送圖片檔案至雲端...');
                     const timestamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
                     const fileName = `${selectedSubject}_${timestamp}.jpg`;
                     
