@@ -261,23 +261,55 @@
             document.getElementById('camera-input').click();
         }
 
-        // 處理拍照與裁切
+// 處理拍照與裁切（加入自動降解析度防護，避免手機記憶體爆掉）
         function handleImageCapture(event) {
             const file = event.target.files[0];
             if (!file) return;
 
+            showLoading('正在讀取照片...');
+
             const reader = new FileReader();
             reader.onload = function(e) {
-                const img = document.getElementById('cropper-image');
-                img.src = e.target.result;
-                document.getElementById('cropper-modal').classList.remove('hidden');
-                
-                if (cropper) cropper.destroy();
-                cropper = new Cropper(img, {
-                    aspectRatio: NaN,
-                    viewMode: 1,
-                    autoCropArea: 0.9,
-                });
+                const imgElement = new Image();
+                imgElement.onload = function() {
+                    // 如果圖片太大，先用 Canvas 等比例縮小到 1200px 以內，保護手機記憶體
+                    const MAX_SIZE = 1200;
+                    let width = imgElement.width;
+                    let height = imgElement.height;
+
+                    if (width > MAX_SIZE || height > MAX_SIZE) {
+                        if (width > height) {
+                            height = Math.round((height * MAX_SIZE) / width);
+                            width = MAX_SIZE;
+                        } else {
+                            width = Math.round((width * MAX_SIZE) / height);
+                            height = MAX_SIZE;
+                        }
+                    }
+
+                    const canvas = document.createElement('canvas');
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(imgElement, 0, 0, width, height);
+
+                    const resizedDataUrl = canvas.toDataURL('image/jpeg', 0.85);
+
+                    // 放入裁切視窗
+                    const img = document.getElementById('cropper-image');
+                    img.src = resizedDataUrl;
+                    hideLoading();
+                    document.getElementById('cropper-modal').classList.remove('hidden');
+                    
+                    if (cropper) cropper.destroy();
+                    cropper = new Cropper(img, {
+                        aspectRatio: NaN,
+                        viewMode: 1,
+                        autoCropArea: 0.9,
+                        responsive: true
+                    });
+                };
+                imgElement.src = e.target.result;
             };
             reader.readAsDataURL(file);
             event.target.value = '';
