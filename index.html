@@ -39,7 +39,7 @@
             <h2 class="text-xl font-bold mb-2">請先登入 Google 帳號</h2>
             <p class="text-sm text-slate-500 mb-6">登入後才能將錯題照片自動歸檔至您的 Google 雲端硬碟，供 NotebookLM 使用。</p>
             <div id="g_id_onload"
-                 data-client_id=""
+                 data-client_id="896748643603-1fa22anpr0brr7vr5jd47ub0cv36n2mk.apps.googleusercontent.com"
                  data-callback="handleCredentialResponse"
                  data-auto_prompt="false">
             </div>
@@ -167,7 +167,7 @@
         });
 
         function checkClientId() {
-            const clientId = localStorage.getItem('g_client_id') || '';
+            const clientId = localStorage.getItem('g_client_id') || '896748643603-1fa22anpr0brr7vr5jd47ub0cv36n2mk.apps.googleusercontent.com';
             if (clientId) {
                 document.getElementById('g_id_onload').setAttribute('data-client_id', clientId);
                 document.getElementById('no-client-id-msg').classList.add('hidden');
