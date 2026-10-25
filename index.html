@@ -312,67 +312,83 @@
             }
         }
 
-        // 上傳裁切後的圖片至 Google Drive
+// 上傳裁切後的圖片至 Google Drive
         async function uploadCroppedImage() {
-            if (!cropper) return;
-            closeCropper();
-            showLoading('準備處理圖片...');
+            if (!cropper) {
+                alert('裁切工具尚未準備好，請重新拍照');
+                return;
+            }
 
-            cropper.getCroppedCanvas({ maxWidth: 1600, maxHeight: 1600 }).toBlob(async (blob) => {
-                try {
-                    const grade = localStorage.getItem('setting_grade') || '國一';
-                    const semester = localStorage.getItem('setting_semester') || '上學期';
-                    const exam = localStorage.getItem('setting_exam') || '第一次段考';
+            showLoading('正在處理圖片...');
 
-                    // 步驟 1
-                    showLoading('正在檢查/建立根資料夾...');
-                    const rootFolderId = await getOrCreateFolder('NotebookLM_錯題本', 'root');
-                    
-                    // 步驟 2
-                    showLoading('正在檢查/建立年級學期資料夾...');
-                    const gradeFolderId = await getOrCreateFolder(`${grade}${semester}`, rootFolderId);
-                    
-                    // 步驟 3
-                    showLoading('正在檢查/建立段考資料夾...');
-                    const examFolderId = await getOrCreateFolder(exam, gradeFolderId);
-                    
-                    // 步驟 4
-                    showLoading('正在檢查/建立科目資料夾...');
-                    const subjectFolderId = await getOrCreateFolder(selectedSubject, examFolderId);
-
-                    // 步驟 5
-                    showLoading('正在傳送圖片檔案至雲端...');
-                    const timestamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
-                    const fileName = `${selectedSubject}_${timestamp}.jpg`;
-                    
-                    const metadata = {
-                        name: fileName,
-                        parents: [subjectFolderId]
-                    };
-
-                    const form = new FormData();
-                    form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
-                    form.append('file', blob);
-
-                    const response = await fetchWithTimeout('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-                        method: 'POST',
-                        headers: new Headers({ 'Authorization': 'Bearer ' + accessToken }),
-                        body: form
-                    });
-
-                    if (!response.ok) {
-                        const errText = await response.text();
-                        throw new Error(`圖片上傳失敗 [HTTP ${response.status}]: ${errText}`);
-                    }
-
-                    hideLoading();
-                    alert('✨ 錯題上傳成功！已歸檔至對應 Google Drive 資料夾。');
-                } catch (error) {
-                    hideLoading();
-                    console.error('Upload Error Detailed:', error);
-                    showErrorMessage('上傳失敗詳細原因', error.message || error);
+            try {
+                // 將最大解析度從 1600 降到 1000，減輕手機記憶體負擔
+                const canvas = cropper.getCroppedCanvas({ maxWidth: 1000, maxHeight: 1000 });
+                if (!canvas) {
+                    throw new Error('無法取得裁切畫布，請重新裁切');
                 }
-            }, 'image/jpeg', 0.85);
+
+                closeCropper();
+
+                canvas.toBlob(async (blob) => {
+                    try {
+                        if (!blob) {
+                            throw new Error('圖片轉檔失敗 (Blob 為空)');
+                        }
+
+                        const grade = localStorage.getItem('setting_grade') || '國一';
+                        const semester = localStorage.getItem('setting_semester') || '上學期';
+                        const exam = localStorage.getItem('setting_exam') || '第一次段考';
+
+                        showLoading('正在檢查/建立根資料夾...');
+                        const rootFolderId = await getOrCreateFolder('NotebookLM_錯題本', 'root');
+                        
+                        showLoading('正在檢查/建立年級學期資料夾...');
+                        const gradeFolderId = await getOrCreateFolder(`${grade}${semester}`, rootFolderId);
+                        
+                        showLoading('正在檢查/建立段考資料夾...');
+                        const examFolderId = await getOrCreateFolder(exam, gradeFolderId);
+                        
+                        showLoading('正在檢查/建立科目資料夾...');
+                        const subjectFolderId = await getOrCreateFolder(selectedSubject, examFolderId);
+
+                        showLoading('正在傳送圖片檔案至雲端...');
+                        const timestamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
+                        const fileName = `${selectedSubject}_${timestamp}.jpg`;
+                        
+                        const metadata = {
+                            name: fileName,
+                            parents: [subjectFolderId]
+                        };
+
+                        const form = new FormData();
+                        form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+                        form.append('file', blob);
+
+                        const response = await fetchWithTimeout('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+                            method: 'POST',
+                            headers: new Headers({ 'Authorization': 'Bearer ' + accessToken }),
+                            body: form
+                        });
+
+                        if (!response.ok) {
+                            const errText = await response.text();
+                            throw new Error(`圖片上傳失敗 [HTTP ${response.status}]: ${errText}`);
+                        }
+
+                        hideLoading();
+                        alert('✨ 錯題上傳成功！已歸檔至對應 Google Drive 資料夾。');
+                    } catch (error) {
+                        hideLoading();
+                        console.error('Upload Error Detailed:', error);
+                        showErrorMessage('上傳失敗詳細原因', error.message || error);
+                    }
+                }, 'image/jpeg', 0.80);
+
+            } catch (err) {
+                hideLoading();
+                showErrorMessage('圖片處理錯誤', err.message);
+            }
         }
 
         // Google Drive 雲端資料夾尋找或建立 (含詳細錯誤回報)
