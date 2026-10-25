@@ -38,13 +38,16 @@
             <div class="text-5xl mb-4">🔐</div>
             <h2 class="text-xl font-bold mb-2">請先登入 Google 帳號</h2>
             <p class="text-sm text-slate-500 mb-6">登入後才能將錯題照片自動歸檔至您的 Google 雲端硬碟，供 NotebookLM 使用。</p>
-            <div id="g_id_onload"
-                 data-client_id="896748643603-1fa22anpr0brr7vr5jd47ub0cv36n2mk.apps.googleusercontent.com"
-                 data-callback="handleCredentialResponse"
-                 data-auto_prompt="false">
-            </div>
-            <div class="g_id_signin flex justify-center" data-type="standard"></div>
-            <p id="no-client-id-msg" class="text-xs text-red-500 mt-4 hidden">尚未設定 Google Client ID，請點擊右上角 ⚙️ 設定您的 Client ID。</p>
+            
+            <button onclick="requestGoogleLogin()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-xl shadow-md transition flex items-center justify-center gap-2">
+                <svg class="w-5 h-5 fill-current" viewBox="0 0 24 24">
+                    <path d="M21.35 11.1H12v3.8h5.4c-.2 1.2-1 2.2-2.1 2.9v2.5h3.4c2-1.8 3.1-4.6 3.1-8.2 0-.6-.1-1.2-.1-1Phz"/>
+                    <path d="M12 21c2.8 0 5.2-.9 7-2.6l-3.4-2.5c-.9.6-2.1 1-3.6 1-2.8 0-5.2-1.9-6-4.4H2.4v2.6C4.2 18.7 7.8 21 12 21z"/>
+                    <path d="M6 12.5c-.2-.6-.3-1.3-.3-2s.1-1.4.3-2V5.9H2.4C1.5 7.7 1 9.8 1 12s.5 4.3 1.4 6.1l3.6-2.6z"/>
+                    <path d="M12 5.9c1.5 0 2.9.5 4 1.5l3-3C17.2 2.7 14.8 1.8 12 1.8 7.8 1.8 4.2 4.1 2.4 7.7l3.6 2.8c.8-2.5 3.2-4.6 6-4.6z"/>
+                </svg>
+                使用 Google 帳號登入
+            </button>
         </div>
 
         <!-- 已登入：主操作介面 -->
@@ -93,19 +96,11 @@
     <div id="settings-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4">
         <div class="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl max-h-[90vh] overflow-y-auto">
             <div class="flex justify-between items-center mb-4">
-                <h3 class="text-lg font-bold">常駐與系統設定</h3>
+                <h3 class="text-lg font-bold">歸檔階段與年級設定</h3>
                 <button onclick="closeSettings()" class="text-slate-400 hover:text-slate-600 text-xl font-bold">&times;</button>
             </div>
             
             <div class="space-y-4">
-                <div>
-                    <label class="block text-xs font-bold text-slate-600 mb-1">Google OAuth Client ID</label>
-                    <input type="text" id="setting-client-id" placeholder="貼上您的 .apps.googleusercontent.com" class="w-full text-sm border border-slate-200 rounded-lg p-2.5 focus:outline-indigo-500">
-                    <p class="text-[11px] text-slate-400 mt-1">請參照教學從 Google Cloud 取得並填入此處。</p>
-                </div>
-
-                <hr class="border-slate-100">
-
                 <div>
                     <label class="block text-xs font-bold text-slate-600 mb-1">年級選擇</label>
                     <select id="setting-grade" class="w-full text-sm border border-slate-200 rounded-lg p-2.5 bg-white">
@@ -149,6 +144,9 @@
     <!-- Cropper.js JS -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
     <script>
+        // 固定寫死的 Client ID（已為您填妥）
+        const HARDCODED_CLIENT_ID = '896748643603-1fa22anpr0brr7vr5jd47ub0cv36n2mk.apps.googleusercontent.com';
+
         // 科目對照表
         const SUBJECTS = {
             "國一": ["國文", "英文", "數學", "生物", "歷史", "地理", "公民"],
@@ -157,76 +155,46 @@
         };
 
         let accessToken = null;
+        let tokenClient = null;
         let cropper = null;
         let selectedSubject = '';
 
         // 初始化載入
         window.addEventListener('DOMContentLoaded', () => {
             loadSettingsToUI();
-            checkClientId();
+            initGoogleOAuth();
         });
 
-        function checkClientId() {
-            const clientId = localStorage.getItem('g_client_id') || '896748643603-1fa22anpr0brr7vr5jd47ub0cv36n2mk.apps.googleusercontent.com';
-            if (clientId) {
-                document.getElementById('g_id_onload').setAttribute('data-client_id', clientId);
-                document.getElementById('no-client-id-msg').classList.add('hidden');
-                if (window.google) {
-                    google.accounts.id.initialize({
-                        client_id: clientId,
-                        callback: handleCredentialResponse
-                    });
-                }
-            } else {
-                document.getElementById('no-client-id-msg').classList.remove('hidden');
-            }
-        }
-
-        function handleCredentialResponse(response) {
-            // 由於我們需要 Google Drive API 權限 (OAuth Token)，這裡使用 GIS Token Client 流程
-            // 或是經由 ID token 換取存取權杖。簡化起見，我們直接啟動 Token Client：
-            tokenClient.requestAccessToken();
-        }
-
-        let tokenClient;
-        function initTokenClient() {
-            const clientId = localStorage.getItem('g_client_id');
-            if (!clientId) {
-                alert('請先點擊右上角設定填入 Google Client ID');
-                openSettings();
-                return;
-            }
-            tokenClient = google.accounts.oauth2.initTokenClient({
-                client_id: clientId,
-                scope: 'https://www.googleapis.com/auth/drive.file',
-                callback: (resp) => {
-                    if (resp.error) {
-                        alert('授權失敗: ' + resp.error);
-                        return;
+        function initGoogleOAuth() {
+            if (window.google && window.google.accounts) {
+                tokenClient = google.accounts.oauth2.initTokenClient({
+                    client_id: HARDCODED_CLIENT_ID,
+                    scope: 'https://www.googleapis.com/auth/drive.file',
+                    callback: (resp) => {
+                        if (resp.error) {
+                            alert('登入失敗: ' + resp.error);
+                            return;
+                        }
+                        accessToken = resp.access_token;
+                        document.getElementById('user-status').innerText = '已連線';
+                        document.getElementById('user-status').className = 'text-xs bg-emerald-600 px-2 py-1 rounded-full text-emerald-100';
+                        document.getElementById('login-container').classList.add('hidden');
+                        document.getElementById('app-container').classList.remove('hidden');
+                        renderSubjects();
                     }
-                    accessToken = resp.access_token;
-                    document.getElementById('user-status').innerText = '已連線';
-                    document.getElementById('user-status').className = 'text-xs bg-emerald-600 px-2 py-1 rounded-full text-emerald-100';
-                    document.getElementById('login-container').classList.add('hidden');
-                    document.getElementById('app-container').classList.remove('hidden');
-                    renderSubjects();
-                }
-            });
-            tokenClient.requestAccessToken();
+                });
+            } else {
+                setTimeout(initGoogleOAuth, 200);
+            }
         }
 
-        // 覆寫 Google 預設登入按鈕行為改用 Token Client
-        window.addEventListener('load', () => {
-            setTimeout(() => {
-                const btn = document.querySelector('.g_id_signin');
-                if (btn) {
-                    btn.onclick = (e) => {
-                        e.preventDefault();
-                        initTokenClient();
-                    };
-                }
-            }, 500);
-        });
+        function requestGoogleLogin() {
+            if (tokenClient) {
+                tokenClient.requestAccessToken();
+            } else {
+                alert('Google API 載入中，請稍後再試');
+            }
+        }
 
         // 設定管理
         function openSettings() {
@@ -239,26 +207,21 @@
         }
 
         function loadSettingsToUI() {
-            document.getElementById('setting-client-id').value = localStorage.getItem('g_client_id') || '';
             document.getElementById('setting-grade').value = localStorage.getItem('setting_grade') || '國一';
             document.getElementById('setting-semester').value = localStorage.getItem('setting_semester') || '上學期';
             document.getElementById('setting-exam').value = localStorage.getItem('setting_exam') || '第一次段考';
-            
             updateCurrentSettingDisplay();
         }
 
         function saveSettings() {
-            const clientId = document.getElementById('setting-client-id').value.trim();
             const grade = document.getElementById('setting-grade').value;
             const semester = document.getElementById('setting-semester').value;
             const exam = document.getElementById('setting-exam').value;
 
-            localStorage.setItem('g_client_id', clientId);
             localStorage.setItem('setting_grade', grade);
             localStorage.setItem('setting_semester', semester);
             localStorage.setItem('setting_exam', exam);
 
-            checkClientId();
             updateCurrentSettingDisplay();
             closeSettings();
             if (accessToken) {
@@ -316,7 +279,7 @@
                 });
             };
             reader.readAsDataURL(file);
-            event.target.value = ''; // 清空 input 確保重複拍照有效
+            event.target.value = '';
         }
 
         function closeCropper() {
