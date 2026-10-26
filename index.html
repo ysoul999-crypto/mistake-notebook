@@ -3,13 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>錯題筆記上傳助手</title>
+    <title>錯題筆記上傳助手 (PDF 合併版)</title>
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Cropper.js CSS -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css">
     <!-- Google Identity Services -->
     <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <!-- jsPDF CDN for Client-Side PDF Generation -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <style>
         body { -webkit-tap-highlight-color: transparent; }
         .cropper-view-box, .cropper-face { border-radius: 4px; }
@@ -37,7 +39,7 @@
         <div id="login-container" class="my-auto text-center p-6 bg-white rounded-2xl shadow-sm border border-slate-100">
             <div class="text-5xl mb-4">🔐</div>
             <h2 class="text-xl font-bold mb-2">請先登入 Google 帳號</h2>
-            <p class="text-sm text-slate-500 mb-6">登入後才能將錯題照片自動歸檔至您的 Google 雲端硬碟，供 NotebookLM 使用。</p>
+            <p class="text-sm text-slate-500 mb-6">登入後才能將錯題照片自動打包 PDF 歸檔至您的 Google 雲端硬碟，供 NotebookLM 使用。</p>
             
             <button onclick="requestGoogleLogin()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-xl shadow-md transition flex items-center justify-center gap-2">
                 <svg class="w-5 h-5 fill-current" viewBox="0 0 24 24">
@@ -57,7 +59,7 @@
             <div class="bg-indigo-50 border border-indigo-100 rounded-xl p-3.5 mb-4 flex justify-between items-center shadow-xs">
                 <div>
                     <div class="text-xs text-indigo-500 font-medium">目前歸檔位置</div>
-                    <div id="current-setting-text" class="text-sm font-bold text-indigo-900 mt-0.5">國一上 · 第一次段考</div>
+                    <div id="current-setting-text" class="text-sm font-bold text-indigo-900 mt-0.5">國一上學期 · 第一次段考</div>
                 </div>
                 <button onclick="openSettings()" class="text-xs bg-white text-indigo-600 border border-indigo-200 px-3 py-1.5 rounded-lg font-medium shadow-2xs active:scale-95 transition">
                     更改設定
@@ -66,12 +68,33 @@
 
             <!-- 科目選擇標題 -->
             <div class="mb-3">
-                <h2 class="text-sm font-bold text-slate-600 uppercase tracking-wider">請選擇錯題科目</h2>
+                <h2 class="text-sm font-bold text-slate-600 uppercase tracking-wider">第一步：選擇拍照科目</h2>
             </div>
 
             <!-- 科目按鈕網格 -->
             <div id="subject-grid" class="grid grid-cols-2 gap-3 mb-6">
                 <!-- 動態生成科目按鈕 -->
+            </div>
+
+            <!-- 待合併錯題佇列區 -->
+            <div id="queue-section" class="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm mt-auto">
+                <div class="flex justify-between items-center mb-3">
+                    <h3 class="text-sm font-bold text-slate-700 flex items-center gap-1.5">
+                        <span>📄</span> 待打包錯題清單 
+                        <span id="queue-count" class="bg-indigo-100 text-indigo-700 text-xs px-2 py-0.5 rounded-full font-bold">0 題</span>
+                    </h3>
+                    <button onclick="clearQueue()" id="clear-btn" class="text-xs text-red-500 hover:text-red-700 hidden">清空</button>
+                </div>
+
+                <!-- 縮圖預覽清單 -->
+                <div id="queue-list" class="flex gap-2 overflow-x-auto py-2 min-h-[70px] items-center">
+                    <p id="empty-queue-msg" class="text-xs text-slate-400 text-center w-full py-4">尚無題目，請點擊上方科目開始拍照裁切</p>
+                </div>
+
+                <!-- 打包 PDF 並上傳按鈕 -->
+                <button onclick="generatePdfAndUpload()" id="upload-pdf-btn" disabled class="w-full mt-3 bg-slate-300 text-slate-500 font-bold py-3 rounded-xl shadow-md transition flex items-center justify-center gap-2 cursor-not-allowed">
+                    <span>🚀</span> 打包為單一 PDF 並歸檔至雲端
+                </button>
             </div>
 
             <!-- 隱藏的拍照 Input -->
@@ -88,7 +111,7 @@
         </div>
         <div class="flex gap-3 pt-2">
             <button onclick="closeCropper()" class="flex-1 bg-slate-700 text-white py-3 rounded-xl font-medium active:scale-98 transition">取消</button>
-            <button onclick="uploadCroppedImage()" class="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-medium active:scale-98 transition shadow-lg shadow-indigo-600/30">確認上傳</button>
+            <button onclick="addCroppedImageToQueue()" class="flex-1 bg-indigo-600 text-white py-3 rounded-xl font-medium active:scale-98 transition shadow-lg shadow-indigo-600/30">加入 PDF 清單</button>
         </div>
     </div>
 
@@ -144,11 +167,9 @@
     <!-- Cropper.js JS -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
     <script>
-        // 固定寫死的 Client ID
         const HARDCODED_CLIENT_ID = '896748643603-1fa22anpr0brr7vr5jd47ub0cv36n2mk.apps.googleusercontent.com';
-        const UPLOAD_TIMEOUT_MS = 15000; // 上傳超時判定時間（15秒）
+        const UPLOAD_TIMEOUT_MS = 20000; // PDF 上傳超時判定設為 20 秒
 
-        // 科目對照表
         const SUBJECTS = {
             "國一": ["國文", "英文", "數學", "生物", "歷史", "地理", "公民"],
             "國二": ["國文", "英文", "數學", "理化", "歷史", "地理", "公民"],
@@ -159,8 +180,10 @@
         let tokenClient = null;
         let cropper = null;
         let selectedSubject = '';
+        
+        // 待打包圖片佇列 [{ subject: '數學', blob: Blob, dataUrl: 'data:image...' }]
+        let croppedQueue = [];
 
-        // 初始化載入
         window.addEventListener('DOMContentLoaded', () => {
             loadSettingsToUI();
             initGoogleOAuth();
@@ -197,7 +220,6 @@
             }
         }
 
-        // 設定管理
         function openSettings() {
             loadSettingsToUI();
             document.getElementById('settings-modal').classList.remove('hidden');
@@ -237,7 +259,6 @@
             document.getElementById('current-setting-text').innerText = `${grade}${semester} · ${exam}`;
         }
 
-        // 渲染科目按鈕
         function renderSubjects() {
             const grade = localStorage.getItem('setting_grade') || '國一';
             const subjects = SUBJECTS[grade] || SUBJECTS["國一"];
@@ -261,7 +282,6 @@
             document.getElementById('camera-input').click();
         }
 
-// 處理拍照與裁切（加入自動降解析度防護，避免手機記憶體爆掉）
         function handleImageCapture(event) {
             const file = event.target.files[0];
             if (!file) return;
@@ -272,7 +292,6 @@
             reader.onload = function(e) {
                 const imgElement = new Image();
                 imgElement.onload = function() {
-                    // 如果圖片太大，先用 Canvas 等比例縮小到 1200px 以內，保護手機記憶體
                     const MAX_SIZE = 1200;
                     let width = imgElement.width;
                     let height = imgElement.height;
@@ -295,7 +314,6 @@
 
                     const resizedDataUrl = canvas.toDataURL('image/jpeg', 0.85);
 
-                    // 放入裁切視窗
                     const img = document.getElementById('cropper-image');
                     img.src = resizedDataUrl;
                     hideLoading();
@@ -323,7 +341,73 @@
             }
         }
 
-        // 帶有 Timeout 防護機制的 Fetch 封裝
+        // 將裁切後的照片加入待打包佇列
+        function addCroppedImageToQueue() {
+            if (!cropper) return;
+
+            const canvas = cropper.getCroppedCanvas({ maxWidth: 1200, maxHeight: 1200 });
+            if (!canvas) {
+                alert('無法取得裁切畫布，請重新裁切');
+                return;
+            }
+
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+            croppedQueue.push({
+                subject: selectedSubject,
+                dataUrl: dataUrl,
+                width: canvas.width,
+                height: canvas.height
+            });
+
+            closeCropper();
+            updateQueueUI();
+        }
+
+        // 更新佇列顯示介面
+        function updateQueueUI() {
+            const queueList = document.getElementById('queue-list');
+            const queueCount = document.getElementById('queue-count');
+            const clearBtn = document.getElementById('clear-btn');
+            const uploadBtn = document.getElementById('upload-pdf-btn');
+
+            queueCount.innerText = `${croppedQueue.length} 題`;
+
+            if (croppedQueue.length === 0) {
+                queueList.innerHTML = '<p id="empty-queue-msg" class="text-xs text-slate-400 text-center w-full py-4">尚無題目，請點擊上方科目開始拍照裁切</p>';
+                clearBtn.classList.add('hidden');
+                uploadBtn.disabled = true;
+                uploadBtn.className = 'w-full mt-3 bg-slate-300 text-slate-500 font-bold py-3 rounded-xl shadow-md transition flex items-center justify-center gap-2 cursor-not-allowed';
+            } else {
+                queueList.innerHTML = '';
+                croppedQueue.forEach((item, index) => {
+                    const itemDiv = document.createElement('div');
+                    itemDiv.className = 'relative flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden border border-slate-200 shadow-xs group';
+                    itemDiv.innerHTML = `
+                        <img src="${item.dataUrl}" class="w-full h-full object-cover">
+                        <span class="absolute bottom-0 inset-x-0 bg-indigo-600/80 text-white text-[10px] text-center py-0.5 truncate px-1">${item.subject}</span>
+                        <button onclick="removeFromQueue(${index})" class="absolute top-0.5 right-0.5 bg-red-600 text-white w-4 h-4 rounded-full text-[10px] flex items-center justify-center shadow-md">✕</button>
+                    `;
+                    queueList.appendChild(itemDiv);
+                });
+
+                clearBtn.classList.remove('hidden');
+                uploadBtn.disabled = false;
+                uploadBtn.className = 'w-full mt-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl shadow-md shadow-indigo-600/30 transition flex items-center justify-center gap-2 active:scale-98';
+            }
+        }
+
+        function removeFromQueue(index) {
+            croppedQueue.splice(index, 1);
+            updateQueueUI();
+        }
+
+        function clearQueue() {
+            if (confirm('確定要清空所有已拍錯題嗎？')) {
+                croppedQueue = [];
+                updateQueueUI();
+            }
+        }
+
         async function fetchWithTimeout(url, options = {}, timeoutMs = UPLOAD_TIMEOUT_MS) {
             const controller = new AbortController();
             const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -344,86 +428,108 @@
             }
         }
 
-// 上傳裁切後的圖片至 Google Drive
-        async function uploadCroppedImage() {
-            if (!cropper) {
-                alert('裁切工具尚未準備好，請重新拍照');
-                return;
-            }
+        // 打包前端所有圖片為多頁高解析度 PDF 並發送至 Google Drive
+        async function generatePdfAndUpload() {
+            if (croppedQueue.length === 0) return;
 
-            showLoading('正在處理圖片...');
+            showLoading(`正在打包 ${croppedQueue.length} 道錯題為 PDF...`);
 
             try {
-                // 將最大解析度從 1600 降到 1000，減輕手機記憶體負擔
-                const canvas = cropper.getCroppedCanvas({ maxWidth: 1000, maxHeight: 1000 });
-                if (!canvas) {
-                    throw new Error('無法取得裁切畫布，請重新裁切');
+                const { jsPDF } = window.jspdf;
+                // 初始化 A4 尺寸 (210mm x 297mm) PDF
+                const pdf = new jsPDF('p', 'mm', 'a4');
+                const pdfWidth = 210;
+                const pdfHeight = 297;
+                const margin = 10;
+                const printableWidth = pdfWidth - (margin * 2);
+                const printableHeight = pdfHeight - (margin * 2);
+
+                croppedQueue.forEach((item, index) => {
+                    if (index > 0) {
+                        pdf.addPage();
+                    }
+
+                    // 計算等比例圖片大小，確保滿版清晰且不變形
+                    let imgWidth = printableWidth;
+                    let imgHeight = (item.height * printableWidth) / item.width;
+
+                    if (imgHeight > printableHeight) {
+                        imgHeight = printableHeight;
+                        imgWidth = (item.width * printableHeight) / item.height;
+                    }
+
+                    const xPos = margin + (printableWidth - imgWidth) / 2;
+                    const yPos = margin + (printableHeight - imgHeight) / 2;
+
+                    pdf.addImage(item.dataUrl, 'JPEG', xPos, yPos, imgWidth, imgHeight);
+                    
+                    // 頁尾小字註記
+                    pdf.setFontSize(9);
+                    pdf.setTextColor(150);
+                    pdf.text(`錯題筆記 - 科目: ${item.subject} | 第 ${index + 1} / ${croppedQueue.length} 頁`, margin, pdfHeight - 4);
+                });
+
+                // 生成 PDF Blob
+                const pdfBlob = pdf.output('blob');
+
+                const grade = localStorage.getItem('setting_grade') || '國一';
+                const semester = localStorage.getItem('setting_semester') || '上學期';
+                const exam = localStorage.getItem('setting_exam') || '第一次段考';
+
+                // 以第一張題目的科目為主，若有多科目則標註為「綜合」
+                const mainSubject = croppedQueue.every(i => i.subject === croppedQueue[0].subject) ? croppedQueue[0].subject : '綜合';
+
+                showLoading('正在檢查/建立根資料夾...');
+                const rootFolderId = await getOrCreateFolder('NotebookLM_錯題本', 'root');
+                
+                showLoading('正在檢查/建立年級資料夾...');
+                const gradeFolderId = await getOrCreateFolder(`${grade}${semester}`, rootFolderId);
+                
+                showLoading('正在檢查/建立段考資料夾...');
+                const examFolderId = await getOrCreateFolder(exam, gradeFolderId);
+                
+                showLoading('正在檢查/建立科目資料夾...');
+                const subjectFolderId = await getOrCreateFolder(mainSubject, examFolderId);
+
+                showLoading('正在傳送錯題本 PDF 至 Google 雲端...');
+                const timestamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
+                const fileName = `${mainSubject}_錯題合輯_${timestamp}.pdf`;
+                
+                const metadata = {
+                    name: fileName,
+                    mimeType: 'application/pdf',
+                    parents: [subjectFolderId]
+                };
+
+                const form = new FormData();
+                form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+                form.append('file', pdfBlob);
+
+                const response = await fetchWithTimeout('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+                    method: 'POST',
+                    headers: new Headers({ 'Authorization': 'Bearer ' + accessToken }),
+                    body: form
+                });
+
+                if (!response.ok) {
+                    const errText = await response.text();
+                    throw new Error(`PDF 上傳失敗 [HTTP ${response.status}]: ${errText}`);
                 }
 
-                closeCropper();
-
-                canvas.toBlob(async (blob) => {
-                    try {
-                        if (!blob) {
-                            throw new Error('圖片轉檔失敗 (Blob 為空)');
-                        }
-
-                        const grade = localStorage.getItem('setting_grade') || '國一';
-                        const semester = localStorage.getItem('setting_semester') || '上學期';
-                        const exam = localStorage.getItem('setting_exam') || '第一次段考';
-
-                        showLoading('正在檢查/建立根資料夾...');
-                        const rootFolderId = await getOrCreateFolder('NotebookLM_錯題本', 'root');
-                        
-                        showLoading('正在檢查/建立年級學期資料夾...');
-                        const gradeFolderId = await getOrCreateFolder(`${grade}${semester}`, rootFolderId);
-                        
-                        showLoading('正在檢查/建立段考資料夾...');
-                        const examFolderId = await getOrCreateFolder(exam, gradeFolderId);
-                        
-                        showLoading('正在檢查/建立科目資料夾...');
-                        const subjectFolderId = await getOrCreateFolder(selectedSubject, examFolderId);
-
-                        showLoading('正在傳送圖片檔案至雲端...');
-                        const timestamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
-                        const fileName = `${selectedSubject}_${timestamp}.jpg`;
-                        
-                        const metadata = {
-                            name: fileName,
-                            parents: [subjectFolderId]
-                        };
-
-                        const form = new FormData();
-                        form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
-                        form.append('file', blob);
-
-                        const response = await fetchWithTimeout('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-                            method: 'POST',
-                            headers: new Headers({ 'Authorization': 'Bearer ' + accessToken }),
-                            body: form
-                        });
-
-                        if (!response.ok) {
-                            const errText = await response.text();
-                            throw new Error(`圖片上傳失敗 [HTTP ${response.status}]: ${errText}`);
-                        }
-
-                        hideLoading();
-                        alert('✨ 錯題上傳成功！已歸檔至對應 Google Drive 資料夾。');
-                    } catch (error) {
-                        hideLoading();
-                        console.error('Upload Error Detailed:', error);
-                        showErrorMessage('上傳失敗詳細原因', error.message || error);
-                    }
-                }, 'image/jpeg', 0.80);
-
-            } catch (err) {
                 hideLoading();
-                showErrorMessage('圖片處理錯誤', err.message);
+                alert(`🎉 成功將 ${croppedQueue.length} 道錯題打包上傳為 PDF！\n已歸檔至 [${mainSubject}] 資料夾。`);
+                
+                // 清空佇列
+                croppedQueue = [];
+                updateQueueUI();
+
+            } catch (error) {
+                hideLoading();
+                console.error('PDF Upload Error Detailed:', error);
+                showErrorMessage('PDF 打包或上傳失敗', error.message || error);
             }
         }
 
-        // Google Drive 雲端資料夾尋找或建立 (含詳細錯誤回報)
         async function getOrCreateFolder(folderName, parentId) {
             const query = `name='${folderName}' and '${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`;
             
@@ -441,7 +547,6 @@
                 return searchData.files[0].id;
             }
 
-            // 若不存在則建立資料夾
             const metadata = {
                 name: folderName,
                 mimeType: 'application/vnd.google-apps.folder',
@@ -474,7 +579,6 @@
             document.getElementById('loading-overlay').classList.add('hidden');
         }
 
-        // 手機螢幕彈出詳細錯誤訊息的輔助函式
         function showErrorMessage(title, details) {
             alert(`❌ ${title}\n--------------------\n詳細原因：\n${details}`);
         }
